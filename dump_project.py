@@ -4,7 +4,7 @@ import fnmatch
 
 # Configurações de exclusão
 IGNORE_DIRS = {"venv", "__pycache__", ".git"}   # pastas fixas a ignorar
-IGNORE_FILES = {"__init__.py", ".env", "settings.json"}  # arquivos fixos a ignorar
+IGNORE_FILES = {".env", "settings.json", ".gitignore", "__init__.py"}  # arquivos fixos a ignorar
 IGNORE_PATTERNS = {"*.log", "*.tmp", "*.md"}  # padrões glob adicionais
 
 def load_gitignore(root_dir):
@@ -20,9 +20,11 @@ def load_gitignore(root_dir):
                 patterns.add(line)
     return patterns
 
-def should_ignore_file(filename, rel_path, gitignore_patterns, output_file):
-    """Verifica se o arquivo deve ser ignorado por nome, padrão, .gitignore ou se é o próprio arquivo de saída."""
-    if os.path.abspath(rel_path) == os.path.abspath(output_file):
+def should_ignore_file(filename, filepath, rel_path, gitignore_patterns, output_file, script_file):
+    """Verifica se o arquivo deve ser ignorado por nome, padrão, .gitignore, saída ou script."""
+    if os.path.abspath(filepath) == os.path.abspath(output_file):
+        return True
+    if os.path.abspath(filepath) == os.path.abspath(script_file):
         return True
     if filename in IGNORE_FILES:
         return True
@@ -31,10 +33,10 @@ def should_ignore_file(filename, rel_path, gitignore_patterns, output_file):
             return True
     return False
 
-def is_text_file(filepath, rel_path, gitignore_patterns, output_file):
+def is_text_file(filepath, rel_path, gitignore_patterns, output_file, script_file):
     """Verifica se o arquivo é de texto (ignora binários e arquivos proibidos)."""
     filename = os.path.basename(filepath)
-    if should_ignore_file(filename, filepath, gitignore_patterns, output_file):
+    if should_ignore_file(filename, filepath, rel_path, gitignore_patterns, output_file, script_file):
         return False
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
@@ -43,7 +45,7 @@ def is_text_file(filepath, rel_path, gitignore_patterns, output_file):
     except:
         return False
 
-def build_treeview(root_dir, gitignore_patterns, output_file):
+def build_treeview(root_dir, gitignore_patterns, output_file, script_file):
     """Cria a representação da estrutura de diretórios em formato treeview."""
     tree_lines = []
 
@@ -56,7 +58,7 @@ def build_treeview(root_dir, gitignore_patterns, output_file):
             # Ignora pastas e arquivos configurados
             if os.path.isdir(path) and (entry in IGNORE_DIRS or any(fnmatch.fnmatch(rel_path, p) for p in gitignore_patterns)):
                 continue
-            if os.path.isfile(path) and should_ignore_file(entry, path, gitignore_patterns, output_file):
+            if os.path.isfile(path) and should_ignore_file(entry, path, rel_path, gitignore_patterns, output_file, script_file):
                 continue
 
             connector = "└── " if i == len(entries) - 1 else "├── "
@@ -77,9 +79,13 @@ def dump_project(root_dir):
         print(f"Erro: pasta '{root_dir}' não existe.")
         return
 
-    # Nome do arquivo de saída
+    # Caminho do próprio script
+    script_file = os.path.abspath(sys.argv[0])
+
+    # Nome do arquivo de saída (na pasta do script)
     base_name = os.path.basename(root_dir.rstrip(os.sep))
-    output_file = os.path.join(root_dir, f"_dump_{base_name}.md")
+    script_dir = os.path.dirname(script_file)
+    output_file = os.path.join(script_dir, f"_dump_{base_name}.md")
 
     # Carrega padrões do .gitignore
     gitignore_patterns = load_gitignore(root_dir)
@@ -88,7 +94,7 @@ def dump_project(root_dir):
         # Passo 2: Estrutura de diretórios
         out.write(f"### 📂 Estrutura de Diretórios (base: {root_dir})\n\n")
         out.write("```text\n")
-        out.write(build_treeview(root_dir, gitignore_patterns, output_file))
+        out.write(build_treeview(root_dir, gitignore_patterns, output_file, script_file))
         out.write("\n```\n\n")
 
         # Passo 3: Conteúdo dos arquivos de texto
@@ -100,7 +106,7 @@ def dump_project(root_dir):
                 filepath = os.path.join(dirpath, filename)
                 rel_path = os.path.relpath(filepath, root_dir)
 
-                if is_text_file(filepath, rel_path, gitignore_patterns, output_file):
+                if is_text_file(filepath, rel_path, gitignore_patterns, output_file, script_file):
                     out.write(f"### 📄 {rel_path}:\n\n")
                     out.write("```text\n")
                     try:
